@@ -1,0 +1,17 @@
+{
+  "name": "version-plan-converter",
+  "version": "1.0.0",
+  "description": "将版本计划 Excel 转换为测试用例导入模板",
+  "main": "convert.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "inquirer": "^8.2.7",
+    "mammoth": "^1.12.0",
+    "xlsx": "^0.18.5"
+  }
+}
