@@ -1,23 +1,78 @@
 const inquirer = require('inquirer');
 const path = require('path');
+const fs = require('fs');
 const { listSheets, parseSheet } = require('./lib/parser');
 const { extractPoint } = require('./lib/docx-reader');
 const { buildPrecondition, writeToTemplate } = require('./lib/writer');
 
-const VERSION_PLAN = '5月财辅例行版本清单-财务辅助系统-国内-单专业（新模板）.xlsx';
-const TEMPLATE = '测试用例导入模板.xlsx';
+function findVersionPlans(baseDir) {
+  const files = fs.readdirSync(baseDir);
+  return files
+    .filter(f => /\.xlsx?$/i.test(f) && f.includes('版本清单'))
+    .sort();
+}
+
+function addLineNumbers(text) {
+  if (!text) return text;
+  const lines = text.split('\n').filter(l => l.trim());
+  if (lines.length <= 1) return text;
+
+  // 检查是否已有序号（如 1. / 1、/ ① / (1) 等）
+  const hasNumbering = lines.some(l => /^\s*[\d]+[\.\、\)）]|^[\d一二三四五六七八九十]+[\.\、]|^[（(][\d]+[）)]/.test(l.trim()));
+  if (hasNumbering) return text;
+
+  return lines.map((l, i) => `${i + 1}. ${l.trim()}`).join('\n');
+}
+
+function findTemplate(baseDir) {
+  const files = fs.readdirSync(baseDir);
+  return files.find(f => /\.xlsx?$/i.test(f) && f.includes('测试用例导入模板')) || null;
+}
 
 async function main() {
   console.log('=== 版本计划 → 测试用例 转换工具 ===\n');
 
-  // 1. 列出所有有效 sheet
-  const sheets = listSheets(VERSION_PLAN);
+  // 0. 扫描目录
+  const plans = findVersionPlans(__dirname);
+  if (plans.length === 0) {
+    console.log('当前目录未找到包含"版本清单"的 Excel 文件');
+    return;
+  }
+
+  // 1. 选择版本计划文件
+  let versionPlan;
+  if (plans.length === 1) {
+    versionPlan = plans[0];
+    console.log(`自动识别版本计划: ${versionPlan}`);
+  } else {
+    const { chosen } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'chosen',
+        message: '检测到多个版本计划文件，请选择一个：',
+        choices: plans,
+      },
+    ]);
+    versionPlan = chosen;
+  }
+  console.log('');
+
+  // 2. 识别模板文件
+  const template = findTemplate(__dirname);
+  if (!template) {
+    console.log('当前目录未找到"测试用例导入模板" Excel 文件');
+    return;
+  }
+  console.log(`模板文件: ${template}\n`);
+
+  // 3. 列出所有有效 sheet
+  const sheets = listSheets(versionPlan);
   if (sheets.length === 0) {
     console.log('未找到有效 sheet 页');
     return;
   }
 
-  // 2. 用户选择 sheet
+  // 4. 用户选择 sheet
   const { selected } = await inquirer.prompt([
     {
       type: 'checkbox',
@@ -41,7 +96,7 @@ async function main() {
 
   for (const sheetName of selected) {
     console.log(`\n--- 处理 sheet: ${sheetName} ---`);
-    const rows = parseSheet(VERSION_PLAN, sheetName);
+    const rows = parseSheet(versionPlan, sheetName);
     totalRows += rows.length;
 
     for (const row of rows) {
@@ -59,8 +114,11 @@ async function main() {
         console.log(`  [${row.o}] 测试要点: 无引用文档`);
       }
 
+      // 对测试要点自动编号
+      const formattedPlan = addLineNumbers(implPlanText);
+
       // 构建前置条件
-      const precondition = buildPrecondition(row, implPlanText);
+      const precondition = buildPrecondition(row, formattedPlan);
 
       allRecords.push({
         ...row,
@@ -73,7 +131,7 @@ async function main() {
 
   // 4. 写入模板
   console.log(`\n--- 写入模板 ---`);
-  writeToTemplate(TEMPLATE, allRecords);
+  writeToTemplate(template, allRecords);
 
   // 5. 输出统计
   console.log(`\n=== 转换完成 ===`);
